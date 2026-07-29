@@ -1,0 +1,344 @@
+{
+  "name": "AI Email Filtering Automation (Gmail + Gemini + Discord + Telegram)",
+  "nodes": [
+    {
+      "parameters": {
+        "pollTimes": {
+          "item": [
+            {
+              "mode": "custom"
+            }
+          ]
+        },
+        "simple": false,
+        "filters": {},
+        "options": {}
+      },
+      "id": "86b4b612-4b5e-44f4-81ec-4e89afa04550",
+      "name": "Gmail Trigger",
+      "type": "n8n-nodes-base.gmailTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -1248,
+        64
+      ],
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "OMVUKzN1WEo7RB0d",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "name": "sender_name",
+              "type": "string",
+              "value": "={{ $json.headers?.from?.split('<')[0]?.trim() || $json.from }}"
+            },
+            {
+              "name": "sender_email",
+              "type": "string",
+              "value": "={{ ($json.headers?.from?.match(/<(.+)>/) || [null, $json.from])[1] }}"
+            },
+            {
+              "name": "subject",
+              "type": "string",
+              "value": "={{ $json.subject }}"
+            },
+            {
+              "name": "body",
+              "type": "string",
+              "value": "={{ ($json.text || $json.snippet || '').substring(0, 3000) }}"
+            },
+            {
+              "name": "date_received",
+              "type": "string",
+              "value": "={{ $json.date }}"
+            },
+            {
+              "name": "message_id",
+              "type": "string",
+              "value": "={{ $json.id }}"
+            },
+            {
+              "name": "thread_id",
+              "type": "string",
+              "value": "={{ $json.threadId }}"
+            },
+            {
+              "name": "formatted_text",
+              "type": "string",
+              "value": "=Sender: {{ $json.sender_email }}\nSubject: {{ $json.subject }}\nBody: {{ $json.body }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "15e2d252-3980-4a33-8699-dfc8f18b6532",
+      "name": "Preprocess Email Data",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -1024,
+        64
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={{$vars.GEMINI_API_KEY}}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{\nJSON.stringify({\n  \"contents\": [\n    {\n      \"parts\": [\n        {\n          \"text\": \"You are an email classification assistant. Analyze the email and determine whether it is IMPORTANT or NOT_IMPORTANT.\\n\\nIMPORTANT emails include:\\n- Client communications\\n- Business opportunities\\n- Meeting requests\\n- Urgent messages\\n- Payment or invoice updates\\n- Project updates\\n- High-priority work-related discussions\\n\\nNOT_IMPORTANT emails include:\\n- Promotions\\n- Marketing emails\\n- Newsletters\\n- Spam\\n- Social notifications\\n- Automated low-priority notifications\\n\\nReturn ONLY valid JSON in this exact format:\\n{\\n \\\"classification\\\": \\\"IMPORTANT\\\",\\n \\\"reason\\\": \\\"Short explanation\\\"\\n}\\n\\nEmail Data to analyze:\\n\" + $json.formatted_text\n        }\n      ]\n    }\n  ]\n})\n}}",
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "id": "dc84e804-1d47-4412-8415-8141b341bc76",
+      "name": "Analyze with Gemini",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -800,
+        64
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 2000,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Pull raw text Gemini returned, strip code fences if present, parse JSON safely\nconst response = $input.first().json;\nlet rawText = '';\ntry {\n  rawText = response.candidates[0].content.parts[0].text;\n} catch (e) {\n  throw new Error('Gemini response missing expected structure: ' + JSON.stringify(response).slice(0, 300));\n}\n\nrawText = rawText.trim().replace(/^```json/i, '').replace(/^```/, '').replace(/```$/, '').trim();\n\nlet parsed;\ntry {\n  parsed = JSON.parse(rawText);\n} catch (e) {\n  throw new Error('Could not parse Gemini output as JSON: ' + rawText.slice(0, 300));\n}\n\nif (!parsed.classification || !['IMPORTANT', 'NOT_IMPORTANT'].includes(parsed.classification)) {\n  throw new Error('Invalid classification value: ' + JSON.stringify(parsed));\n}\n\n// Merge back with the original email fields from Preprocess node\nconst emailData = $('Preprocess Email Data').first().json;\n\nreturn [{\n  json: {\n    ...emailData,\n    classification: parsed.classification,\n    reason: parsed.reason\n  }\n}];"
+      },
+      "id": "6d0ecb4f-fce0-452d-8ee1-7adc4d9172f4",
+      "name": "Parse Gemini Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -592,
+        64
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.classification }}",
+              "rightValue": "IMPORTANT",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              },
+              "id": "45f66537-254e-4ed3-a0a2-e6ed777889b6"
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "91cc264c-78b2-45b4-8b1b-cb644c30e130",
+      "name": "Is Important?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -368,
+        64
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{$vars.DISCORD_WEBHOOK_URL}}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"content\": \"**Important Email Detected**\\nFrom: {{ $json.sender_name }} <{{ $json.sender_email }}>\\nSubject: {{ $json.subject }}\\nReason: {{ $json.reason }}\"\n}",
+        "options": {}
+      },
+      "id": "d3ffff4d-7832-41f2-81c7-3ffe0ddc53ec",
+      "name": "Send Discord Notification",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -144,
+        -80
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "operation": "markAsRead",
+        "messageId": "={{ $('Preprocess Email Data').item.json.message_id }}"
+      },
+      "id": "22bc76b5-0be1-4c74-aedb-b5d215be084d",
+      "name": "Mark Email as Read",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        80,
+        -16
+      ],
+      "webhookId": "23980771-408d-474e-bdf1-e012fe3f1b84",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "OMVUKzN1WEo7RB0d",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $input.first().json;\nconsole.log('DELETED EMAIL LOG:', JSON.stringify({\n  timestamp: new Date().toISOString(),\n  sender: item.sender_email,\n  subject: item.subject,\n  reason: item.reason\n}));\nreturn [{ json: item }];"
+      },
+      "id": "8c6aca85-36f6-40e2-9292-59dea6390695",
+      "name": "Log Deleted Email",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -144,
+        224
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "delete",
+        "messageId": "={{ $('Preprocess Email Data').item.json.message_id }}"
+      },
+      "id": "da6be91e-5497-4222-a5c8-cef9ed39c7d9",
+      "name": "Move Email to Trash",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        80,
+        224
+      ],
+      "webhookId": "bfc5ead1-2d0c-44e0-ae1f-ea53dfa1dbe1",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "OMVUKzN1WEo7RB0d",
+          "name": "Gmail account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Gmail Trigger": {
+      "main": [
+        [
+          {
+            "node": "Preprocess Email Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preprocess Email Data": {
+      "main": [
+        [
+          {
+            "node": "Analyze with Gemini",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Analyze with Gemini": {
+      "main": [
+        [
+          {
+            "node": "Parse Gemini Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Gemini Response": {
+      "main": [
+        [
+          {
+            "node": "Is Important?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Important?": {
+      "main": [
+        [
+          {
+            "node": "Send Discord Notification",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Mark Email as Read",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log Deleted Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Discord Notification": {
+      "main": [
+        [
+          {
+            "node": "Mark Email as Read",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Deleted Email": {
+      "main": [
+        [
+          {
+            "node": "Move Email to Trash",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "7998715e-7582-4d08-91da-05c8917c0627",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "2e2366d3d836bf6a8490e074a57e996567bafa22c17702bbd7bb5ad75d74a4af"
+  },
+  "nodeGroups": [],
+  "id": "50SuHQtmz1Zp4JaQ",
+  "tags": []
+}
