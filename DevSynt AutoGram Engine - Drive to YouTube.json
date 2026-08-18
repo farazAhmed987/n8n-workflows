@@ -1,0 +1,433 @@
+{
+  "name": "DevSynt AutoGram Engine - Drive to YouTube",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 6
+            }
+          ]
+        }
+      },
+      "id": "1fd02896-0719-4ad6-9e51-718186d60cbf",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -720,
+        128
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "fileFolder",
+        "filter": {
+          "folderId": {
+            "__rl": true,
+            "value": "10JekRw0iCPD4qRyvOGD7NNjAO5xFhYlP",
+            "mode": "id"
+          }
+        },
+        "options": {}
+      },
+      "id": "bf6877a3-ddc3-4e16-b7ef-5a9b3f4ddd37",
+      "name": "Google Drive - List Files",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        -512,
+        128
+      ],
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "gEzzKDBZlOoIDAaU",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "0da26a19-5b8d-4cbe-a840-33abc743a36b",
+      "name": "Loop Over Items",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        -288,
+        128
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "tableId": "posted_videos",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "drive_file_id",
+              "condition": "eq",
+              "keyValue": "={{$('Loop Over Items').item.json.id}}"
+            }
+          ]
+        }
+      },
+      "id": "d6d0a8a8-ce1e-44e3-ae87-b45a2b14201e",
+      "name": "Supabase - Check Duplicate",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        -32,
+        48
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "supabaseApi": {
+          "id": "IRhC08QMYdXZtweI",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "cond1",
+              "leftValue": "={{ $json.drive_file_id }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "string",
+                "operation": "empty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "c7662e1d-95a3-44cd-ad08-6a38a305296c",
+      "name": "IF - Not Already Posted",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        208,
+        48
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "72fa7541-e832-4a22-9476-40b86d071b93",
+      "name": "NoOp - Skip Duplicate",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        416,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "download",
+        "fileId": {
+          "__rl": true,
+          "value": "={{ $('Loop Over Items').item.json.id }}",
+          "mode": "id"
+        },
+        "options": {}
+      },
+      "id": "7dcbedd4-c566-41e2-aeaf-70b936fc4d4c",
+      "name": "Google Drive - Download File",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        416,
+        -80
+      ],
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "gEzzKDBZlOoIDAaU",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpQueryAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"contents\": [\n    {\n      \"parts\": [\n        {\n          \"text\": \"You are a social media assistant that writes short, catchy YouTube titles, descriptions and hashtags for the video file named: {{ $('Loop Over Items').item.json.name }}. Respond ONLY as valid JSON with keys: title (max 80 chars), description (2 sentences), and hashtags (array of strings).\"\n        }\n      ]\n    }\n  ],\n  \"generationConfig\": {\n    \"responseMimeType\": \"application/json\"\n  }\n}",
+        "options": {}
+      },
+      "id": "d84fa471-8fc5-46ac-83b3-5fda89e61a66",
+      "name": "HTTP Request - Generate Caption",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        640,
+        -80
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "kSOv3e2mRP4JxL1J",
+          "name": "Header Auth account 2"
+        },
+        "httpQueryAuth": {
+          "id": "A7Lkyz4qeiV7zh1Q",
+          "name": "Query Auth account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse the LLM's JSON response into clean fields\nconst response = $input.first().json;\nconst rawContent = response.candidates[0].content.parts[0].text;\n\nlet parsed;\ntry {\n  const cleanJson = rawContent.replace(/```json/g, '').replace(/```/g, '').trim();\n  parsed = JSON.parse(cleanJson);\n} catch (e) {\n  parsed = {\n    title: 'New Upload',\n    description: rawContent,\n    hashtags: []\n  };\n}\n\n// Grab the binary file from the Google Drive download node so it isn't lost\nconst binaryData = $('Google Drive - Download File').first().binary;\n\nreturn {\n  json: parsed,\n  binary: binaryData\n};"
+      },
+      "id": "6256114a-c41d-49f5-99fa-00645e009c41",
+      "name": "Code - Parse Caption",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        864,
+        -80
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "video",
+        "operation": "upload",
+        "title": "={{ $json.title }}",
+        "regionCode": "US",
+        "categoryId": "22",
+        "options": {
+          "description": "={{ $json.description + '\\n\\n' + $json.hashtags.join(' ') }}",
+          "privacyStatus": "private"
+        }
+      },
+      "id": "31c87518-9b73-43dd-beaf-44faae33769d",
+      "name": "YouTube - Upload Video",
+      "type": "n8n-nodes-base.youTube",
+      "typeVersion": 1,
+      "position": [
+        1088,
+        -80
+      ],
+      "credentials": {
+        "youTubeOAuth2Api": {
+          "id": "hsJ8Otw2KxLOIKfI",
+          "name": "YouTube account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "tableId": "posted_videos",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "drive_file_id",
+              "fieldValue": "={{ $('Loop Over Items').item.json.id }}"
+            },
+            {
+              "fieldId": "video_title",
+              "fieldValue": "={{ $('Code - Parse Caption').item.json.title }}"
+            },
+            {
+              "fieldId": "youtube_video_id",
+              "fieldValue": "={{ $json.id }}"
+            },
+            {
+              "fieldId": "status",
+              "fieldValue": "posted"
+            },
+            {
+              "fieldId": "posted_at",
+              "fieldValue": "={{ $now.toISO() }}"
+            }
+          ]
+        }
+      },
+      "id": "a62db9cf-fd49-4fb6-8a4f-6847193dd620",
+      "name": "Supabase - Log Post",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        1296,
+        -80
+      ],
+      "credentials": {
+        "supabaseApi": {
+          "id": "IRhC08QMYdXZtweI",
+          "name": "Supabase account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Google Drive - List Files",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Drive - List Files": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Items": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Supabase - Check Duplicate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Supabase - Check Duplicate": {
+      "main": [
+        [
+          {
+            "node": "IF - Not Already Posted",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Not Already Posted": {
+      "main": [
+        [
+          {
+            "node": "Google Drive - Download File",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "NoOp - Skip Duplicate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Drive - Download File": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request - Generate Caption",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request - Generate Caption": {
+      "main": [
+        [
+          {
+            "node": "Code - Parse Caption",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Parse Caption": {
+      "main": [
+        [
+          {
+            "node": "YouTube - Upload Video",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "YouTube - Upload Video": {
+      "main": [
+        [
+          {
+            "node": "Supabase - Log Post",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Supabase - Log Post": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "NoOp - Skip Duplicate": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "fa08632e-ad1e-4d5b-b774-82a3091f1401",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "98ca6b53a410c91e6e967a0578fbd42e7b39a07a2c66ef5495c470a9eacbbba5"
+  },
+  "nodeGroups": [],
+  "id": "UFhogsgLD47ImpsM",
+  "tags": []
+}
