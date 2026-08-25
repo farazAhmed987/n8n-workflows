@@ -1,0 +1,342 @@
+{
+  "name": "DevSynt Workflow 1 - Application Intake, Screening & Acknowledgment",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## DevSynt Hiring Pipeline - Workflow 1\n### Application Intake, Data Cleaning, Supabase Storage, Acknowledgment & AI ATS Screening\n\n**Sources:**\n1. Email applications via IMAP (`careers@devsynt.com`)\n2. Form submissions via Google Forms / Webhook\n\n**Process Flow:**\nNormalize Data ➔ Deduplicate ➔ Store in Supabase ➔ Send Email Acknowledgment ➔ AI Resume Review ➔ Update ATS Score & Classification in Database",
+        "height": 180,
+        "width": 640
+      },
+      "id": "sticky-header",
+      "name": "Sticky Note - Header",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        100,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "postTrigger": "read",
+        "format": "resolved",
+        "options": {}
+      },
+      "id": "trigger-email",
+      "name": "Source A: IMAP Email Trigger",
+      "type": "n8n-nodes-base.emailReadImap",
+      "typeVersion": 2,
+      "position": [
+        100,
+        320
+      ],
+      "credentials": {
+        "imap": {
+          "id": "devsynt-imap-cred",
+          "name": "DevSynt IMAP Credentials"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "candidate-application",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "id": "trigger-webhook",
+      "name": "Source B: Google Form / Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        100,
+        500
+      ],
+      "webhookId": "devsynt-form-webhook-id"
+    },
+    {
+      "parameters": {
+        "jsCode": "// DevSynt Candidate Data Normalization Code Node\n// Normalizes payload structure from both Email and Form sources into a uniform schema\n\nconst item = $input.item.json;\nlet name = '';\nlet email = '';\nlet phone = '';\nlet source = '';\nlet role_applied = '';\nlet resume_text = '';\n\nif (item.from && item.from.value) {\n  // Email Intake Source\n  source = 'email';\n  name = item.from.value[0]?.name || item.from.value[0]?.address.split('@')[0] || 'Candidate';\n  email = (item.from.value[0]?.address || '').toLowerCase().trim();\n  \n  // Extract role from Email Subject (e.g. \"Application for Full Stack Engineer\")\n  const subject = item.subject || '';\n  const roleMatch = subject.match(/for\\s+([A-Za-z0-9\\s\\-\\+]+)/i);\n  role_applied = roleMatch ? roleMatch[1].trim() : 'Software Engineer';\n  \n  phone = item.phone || 'N/A';\n  resume_text = item.text || item.html || 'Resume text content embedded in email body.';\n} else {\n  // Form / Webhook Source\n  source = 'form';\n  name = item.name || item.fullName || 'Candidate';\n  email = (item.email || '').toLowerCase().trim();\n  phone = item.phone || 'N/A';\n  role_applied = item.role_applied || item.role || item.position || 'Software Engineer';\n  resume_text = item.resume_text || item.resumeText || item.cover_letter || 'Resume text submitted via Google Form.';\n}\n\nreturn {\n  json: {\n    name,\n    email,\n    phone,\n    source,\n    role_applied,\n    resume_text,\n    applied_at: new Date().toISOString(),\n    status: 'pending_review'\n  }\n};"
+      },
+      "id": "code-normalize",
+      "name": "1. Data Normalization",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        340,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT id, email, status FROM candidates WHERE email = '{{ $json.email }}' AND role_applied = '{{ $json.role_applied }}' LIMIT 1;"
+      },
+      "id": "supabase-dedup",
+      "name": "2. Check Existing Candidate",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        560,
+        400
+      ],
+      "credentials": {
+        "supabaseApi": {
+          "id": "devsynt-supabase-cred",
+          "name": "DevSynt Supabase API Credentials"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "dataType": "boolean",
+        "value1": "={{ $json.id ? true : false }}",
+        "rules": {
+          "rules": [
+            {
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "if-duplicate",
+      "name": "3. Is Duplicate?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        780,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "table": "candidates",
+        "fields": "name,email,phone,source,role_applied,resume_text,applied_at,status"
+      },
+      "id": "supabase-insert",
+      "name": "4. Store Candidate in Supabase",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        1000,
+        480
+      ],
+      "credentials": {
+        "supabaseApi": {
+          "id": "devsynt-supabase-cred",
+          "name": "DevSynt Supabase API Credentials"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "fromEmail": "careers@devsynt.com",
+        "toEmail": "={{ $json.email }}",
+        "subject": "=DevSynt Application Received - {{ $json.role_applied }}",
+        "html": "=<h3>Dear {{ $json.name }},</h3><p>Thank you for submitting your application for the <strong>{{ $json.role_applied }}</strong> position at DevSynt.</p><p>We have safely received your details and resume. Our recruitment system is currently reviewing your profile, and we will update you on the next steps shortly.</p><br><p>Best regards,<br><strong>DevSynt Talent Acquisition Team</strong><br><em>careers@devsynt.com</em></p>"
+      },
+      "id": "email-ack",
+      "name": "5. Send Candidate Acknowledgment",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2,
+      "position": [
+        1220,
+        480
+      ],
+      "credentials": {
+        "smtp": {
+          "id": "devsynt-smtp-cred",
+          "name": "DevSynt SMTP Credentials"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "chat",
+        "model": "gpt-4o-mini",
+        "messages": {
+          "message": [
+            {
+              "role": "system",
+              "content": "You are DevSynt's Lead AI Technical Recruiter. Evaluate the candidate resume against the position criteria.\nCalculate a numeric ATS Score between 0 and 100.\nAssign a classification strictly based on these bands:\n- 75 to 100: \"Strong\"\n- 50 to 74: \"Average\"\n- Below 50: \"Weak\"\n\nReturn ONLY a raw JSON object with zero markdown formatting or code blocks:\n{\n  \"ats_score\": <number 0-100>,\n  \"classification\": \"Strong\" | \"Average\" | \"Weak\",\n  \"manager_notes\": \"Concise 2-sentence rationale outlining candidate strengths and gaps.\"\n}"
+            },
+            {
+              "role": "user",
+              "content": "=Role Applied: {{ $node[\"4. Store Candidate in Supabase\"].json.role_applied }}\nCandidate Name: {{ $node[\"4. Store Candidate in Supabase\"].json.name }}\nResume Content:\n{{ $node[\"4. Store Candidate in Supabase\"].json.resume_text }}"
+            }
+          ]
+        }
+      },
+      "id": "openai-scoring",
+      "name": "6. AI CV/Resume Review & ATS Scoring",
+      "type": "n8n-nodes-base.openAi",
+      "typeVersion": 1,
+      "position": [
+        1440,
+        480
+      ],
+      "credentials": {
+        "openAiApi": {
+          "id": "devsynt-openai-cred",
+          "name": "DevSynt OpenAI API Credentials"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse AI response and validate classification thresholds\nconst rawContent = $input.item.json.message?.content || $input.item.json.text || '{}';\nlet parsed = {};\ntry {\n  parsed = JSON.parse(rawContent.replace(/```json|```/g, '').trim());\n} catch (e) {\n  parsed = {\n    ats_score: 60,\n    classification: 'Average',\n    manager_notes: 'Failed to parse AI output automatically. Defaulted for manual review.'\n  };\n}\n\n// Enforce strict scoring thresholds\nlet score = Number(parsed.ats_score) || 50;\nscore = Math.max(0, Math.min(100, score));\n\nlet classification = 'Average';\nif (score >= 75) {\n  classification = 'Strong';\n} else if (score >= 50) {\n  classification = 'Average';\n} else {\n  classification = 'Weak';\n}\n\nreturn {\n  json: {\n    candidate_id: $node[\"4. Store Candidate in Supabase\"].json.id,\n    name: $node[\"4. Store Candidate in Supabase\"].json.name,\n    email: $node[\"4. Store Candidate in Supabase\"].json.email,\n    role_applied: $node[\"4. Store Candidate in Supabase\"].json.role_applied,\n    ats_score: score,\n    classification: classification,\n    manager_notes: parsed.manager_notes || `ATS Score: ${score}/100 - ${classification}`,\n    status: 'pending_review'\n  }\n};"
+      },
+      "id": "code-validate-score",
+      "name": "7. Validate & Enforce Scoring Bands",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1660,
+        480
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "table": "candidates",
+        "matchColumn": "id",
+        "matchValue": "={{ $json.candidate_id }}",
+        "fields": "ats_score,classification,manager_notes"
+      },
+      "id": "supabase-update-score",
+      "name": "8. Update Candidate ATS Score in Database",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        1880,
+        480
+      ],
+      "credentials": {
+        "supabaseApi": {
+          "id": "devsynt-supabase-cred",
+          "name": "DevSynt Supabase API Credentials"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "content": "### Duplicate Handler\nCandidate already submitted application for this role. Drop/Log gracefully without re-acknowledging.",
+        "height": 100,
+        "width": 240
+      },
+      "id": "sticky-duplicate",
+      "name": "Sticky Note - Duplicate",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        980,
+        280
+      ]
+    }
+  ],
+  "connections": {
+    "Source A: IMAP Email Trigger": {
+      "main": [
+        [
+          {
+            "node": "1. Data Normalization",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Source B: Google Form / Webhook": {
+      "main": [
+        [
+          {
+            "node": "1. Data Normalization",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "1. Data Normalization": {
+      "main": [
+        [
+          {
+            "node": "2. Check Existing Candidate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "2. Check Existing Candidate": {
+      "main": [
+        [
+          {
+            "node": "3. Is Duplicate?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "3. Is Duplicate?": {
+      "main": [
+        [],
+        [
+          {
+            "node": "4. Store Candidate in Supabase",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "4. Store Candidate in Supabase": {
+      "main": [
+        [
+          {
+            "node": "5. Send Candidate Acknowledgment",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "5. Send Candidate Acknowledgment": {
+      "main": [
+        [
+          {
+            "node": "6. AI CV/Resume Review & ATS Scoring",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "6. AI CV/Resume Review & ATS Scoring": {
+      "main": [
+        [
+          {
+            "node": "7. Validate & Enforce Scoring Bands",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "7. Validate & Enforce Scoring Bands": {
+      "main": [
+        [
+          {
+            "node": "8. Update Candidate ATS Score in Database",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

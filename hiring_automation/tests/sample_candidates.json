@@ -1,0 +1,29 @@
+[
+  {
+    "name": "Sarah Connor",
+    "email": "sarah.connor@example.com",
+    "phone": "+1-555-0192",
+    "source": "form",
+    "role_applied": "Senior AI Automation Engineer",
+    "expected_classification": "Strong",
+    "resume_text": "Experienced Senior AI Automation Engineer with 6+ years specializing in Node.js, Python, n8n workflow design, LangChain, OpenAI APIs, and Supabase / PostgreSQL databases. Led end-to-end client backend integrations, built automated intake pipelines, and implemented robust CI/CD error handling."
+  },
+  {
+    "name": "Michael Scott",
+    "email": "m.scott@example.com",
+    "phone": "+1-555-0144",
+    "source": "email",
+    "role_applied": "Full Stack Developer",
+    "expected_classification": "Average",
+    "resume_text": "Software developer with 2 years experience in React and JavaScript. Familiar with basic backend APIs and Node.js. Looking to expand knowledge in AI automations and database management."
+  },
+  {
+    "name": "Dwight Schrute",
+    "email": "dwight.beet@example.com",
+    "phone": "+1-555-0188",
+    "source": "form",
+    "role_applied": "DevOps Engineer",
+    "expected_classification": "Weak",
+    "resume_text": "Paper sales manager with interest in computers. Basic familiarity with Microsoft Word and Excel. No prior coding, Node.js, or cloud database experience."
+  }
+]

@@ -1,0 +1,319 @@
+{
+  "name": "DevSynt Workflow 2 - Review & Candidate Routing",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## DevSynt Hiring Pipeline - Workflow 2\n### Automated Candidate Routing & Action Decision Engine\n\n**Trigger:** Periodic Cron Poll (Every 15 minutes)\n**Filter:** Candidates with `status = 'pending_review'` AND `classification IS NOT NULL`\n\n**Routing Rules:**\n- **Strong (75-100):** Send HTML Shortlist Email ➔ Update Status to `shortlisted`\n- **Average (50-74):** Notify Hiring Manager for Manual Review ➔ Update Status to `manual_review`\n- **Weak (<50):** Send Rejection Email ➔ Update Status to `rejected`",
+        "height": 180,
+        "width": 640
+      },
+      "id": "sticky-header-w2",
+      "name": "Sticky Note - Header W2",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        100,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 15
+            }
+          ]
+        }
+      },
+      "id": "cron-poll",
+      "name": "Poll Every 15 Mins",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        100,
+        340
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT * FROM candidates WHERE status = 'pending_review' AND classification IS NOT NULL ORDER BY applied_at ASC LIMIT 50;"
+      },
+      "id": "supabase-fetch-pending",
+      "name": "1. Fetch Scored Pending Candidates",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        320,
+        340
+      ],
+      "credentials": {
+        "supabaseApi": {
+          "id": "devsynt-supabase-cred",
+          "name": "DevSynt Supabase API Credentials"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "dataType": "string",
+        "value1": "={{ $json.classification }}",
+        "rules": {
+          "rules": [
+            {
+              "value2": "Strong",
+              "outputKey": "Strong"
+            },
+            {
+              "value2": "Average",
+              "outputKey": "Average"
+            },
+            {
+              "value2": "Weak",
+              "outputKey": "Weak"
+            }
+          ]
+        }
+      },
+      "id": "switch-classification",
+      "name": "2. Route by Candidate Classification",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 1,
+      "position": [
+        540,
+        340
+      ]
+    },
+    {
+      "parameters": {
+        "fromEmail": "careers@devsynt.com",
+        "toEmail": "={{ $json.email }}",
+        "subject": "=DevSynt Update: You are Shortlisted for {{ $json.role_applied }}!",
+        "html": "=<!DOCTYPE html><html><body style=\"font-family: Arial, sans-serif; color: #333;\"><div style=\"max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 8px;\"><h2 style=\"color: #2e7d32;\">🎉 Congratulations, {{ $json.name }}!</h2><p>We are excited to inform you that your application for the <strong>{{ $json.role_applied }}</strong> position at DevSynt has been <strong>shortlisted</strong>!</p><p>Your profile and background scored <strong>{{ $json.ats_score }}/100</strong> during our preliminary technical ATS review.</p><h4 style=\"color: #1b5e20;\">Next Steps:</h4><p>Our recruitment lead will reach out to you within 24–48 hours with interview availability and details.</p><br><p>Best regards,<br><strong>DevSynt Hiring Team</strong><br><a href=\"https://devsynt.com\">devsynt.com</a></p></div></body></html>"
+      },
+      "id": "email-strong-shortlist",
+      "name": "3A. Send HTML Shortlist Email",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2,
+      "position": [
+        800,
+        180
+      ],
+      "credentials": {
+        "smtp": {
+          "id": "devsynt-smtp-cred",
+          "name": "DevSynt SMTP Credentials"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "table": "candidates",
+        "matchColumn": "id",
+        "matchValue": "={{ $json.id }}",
+        "fields": "status",
+        "updateFields": {
+          "status": "shortlisted"
+        }
+      },
+      "id": "supabase-update-shortlisted",
+      "name": "4A. Update Status to 'shortlisted'",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        1040,
+        180
+      ],
+      "credentials": {
+        "supabaseApi": {
+          "id": "devsynt-supabase-cred",
+          "name": "DevSynt Supabase API Credentials"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "fromEmail": "careers@devsynt.com",
+        "toEmail": "hiring.manager@devsynt.com",
+        "subject": "=[Manual Review Required] Candidate: {{ $json.name }} ({{ $json.role_applied }})",
+        "html": "=<!DOCTYPE html><html><body style=\"font-family: Arial, sans-serif; color: #333;\"><div style=\"max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 8px;\"><h2 style=\"color: #ed6c02;\">⚠️ Manual Candidate Review Required</h2><p>A candidate requires hiring manager review before moving forward.</p><ul><li><strong>Candidate Name:</strong> {{ $json.name }}</li><li><strong>Email:</strong> {{ $json.email }}</li><li><strong>Phone:</strong> {{ $json.phone }}</li><li><strong>Role Applied:</strong> {{ $json.role_applied }}</li><li><strong>ATS Score:</strong> {{ $json.ats_score }}/100 (Average)</li><li><strong>Source:</strong> {{ $json.source }}</li></ul><div style=\"background: #fff8e1; padding: 12px; border-left: 4px solid #ffa726; margin: 15px 0;\"><strong>AI Assessment Rationale:</strong><p>{{ $json.manager_notes }}</p></div><p>Please log in to your candidate dashboard to approve or decline this applicant.</p></div></body></html>"
+      },
+      "id": "email-avg-manager",
+      "name": "3B. Alert Hiring Manager",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2,
+      "position": [
+        800,
+        360
+      ],
+      "credentials": {
+        "smtp": {
+          "id": "devsynt-smtp-cred",
+          "name": "DevSynt SMTP Credentials"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "table": "candidates",
+        "matchColumn": "id",
+        "matchValue": "={{ $json.id }}",
+        "fields": "status",
+        "updateFields": {
+          "status": "manual_review"
+        }
+      },
+      "id": "supabase-update-manual",
+      "name": "4B. Update Status to 'manual_review'",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        1040,
+        360
+      ],
+      "credentials": {
+        "supabaseApi": {
+          "id": "devsynt-supabase-cred",
+          "name": "DevSynt Supabase API Credentials"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "fromEmail": "careers@devsynt.com",
+        "toEmail": "={{ $json.email }}",
+        "subject": "=DevSynt Application Update - {{ $json.role_applied }}",
+        "html": "=<!DOCTYPE html><html><body style=\"font-family: Arial, sans-serif; color: #333;\"><div style=\"max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 8px;\"><h2>Dear {{ $json.name }},</h2><p>Thank you for taking the time to apply for the <strong>{{ $json.role_applied }}</strong> position at DevSynt and for your interest in joining our team.</p><p>After careful review of your resume and qualifications against our current project requirements, we regret to inform you that we will not be moving forward with your application at this time.</p><p>We receive many high-quality applications and decisions are often very difficult. We will keep your resume on file for future opportunities that align with your skillset.</p><br><p>We wish you all the best in your professional endeavors.</p><p>Sincerely,<br><strong>DevSynt Recruitment Team</strong></p></div></body></html>"
+      },
+      "id": "email-weak-rejection",
+      "name": "3C. Send Courteous Rejection Email",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2,
+      "position": [
+        800,
+        540
+      ],
+      "credentials": {
+        "smtp": {
+          "id": "devsynt-smtp-cred",
+          "name": "DevSynt SMTP Credentials"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "table": "candidates",
+        "matchColumn": "id",
+        "matchValue": "={{ $json.id }}",
+        "fields": "status",
+        "updateFields": {
+          "status": "rejected"
+        }
+      },
+      "id": "supabase-update-rejected",
+      "name": "4C. Update Status to 'rejected'",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        1040,
+        540
+      ],
+      "credentials": {
+        "supabaseApi": {
+          "id": "devsynt-supabase-cred",
+          "name": "DevSynt Supabase API Credentials"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Poll Every 15 Mins": {
+      "main": [
+        [
+          {
+            "node": "1. Fetch Scored Pending Candidates",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "1. Fetch Scored Pending Candidates": {
+      "main": [
+        [
+          {
+            "node": "2. Route by Candidate Classification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "2. Route by Candidate Classification": {
+      "main": [
+        [
+          {
+            "node": "3A. Send HTML Shortlist Email",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "3B. Alert Hiring Manager",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "3C. Send Courteous Rejection Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "3A. Send HTML Shortlist Email": {
+      "main": [
+        [
+          {
+            "node": "4A. Update Status to 'shortlisted'",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "3B. Alert Hiring Manager": {
+      "main": [
+        [
+          {
+            "node": "4B. Update Status to 'manual_review'",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "3C. Send Courteous Rejection Email": {
+      "main": [
+        [
+          {
+            "node": "4C. Update Status to 'rejected'",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}
